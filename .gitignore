@@ -20,4 +20,6 @@ backend/uploads/
 # Vercel / Netlify artifacts (later)
 .vercel/
 .netlify/
+
     
+backend/uploads/*.json
