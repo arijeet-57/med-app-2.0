@@ -1,0 +1,23 @@
+# ==== GLOBAL IGNORE (PROJECT LEVEL) ====
+
+# Node modules anywhere
+node_modules/
+
+# Environment variables (secrets)
+.env
+*.env
+
+# Firebase admin secret
+backend/service.json
+backend/firebase-admin.json
+
+# Backend uploads folder
+backend/uploads/
+
+# Logs
+*.log
+
+# Vercel / Netlify artifacts (later)
+.vercel/
+.netlify/
+    
