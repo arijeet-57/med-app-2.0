@@ -3,6 +3,8 @@ import { db } from "../firebase";
 import { collection, getDocs, addDoc } from "firebase/firestore";
 import axios from "axios";
 
+const today = new Date().toISOString().split("T")[0];
+
 export default function Dashboard() {
   const [medicines, setMedicines] = useState([]);
   const [ocrResult, setOcrResult] = useState("");
@@ -12,35 +14,41 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function fetchMeds() {
-      const snap = await getDocs(collection(db, `users/${userId}/medicines`));
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setMedicines(list);
+      const snap = await getDocs(
+  collection(db, `users/${userId}/medicines`)
+);
+
+const list = snap.docs
+  .map(d => ({ id: d.id, ...d.data() }))
+  .filter(med => med.date === today);   
+
+setMedicines(list);
+
     }
     fetchMeds();
   }, []);
 
-  const uploadPhoto = async (e) => {
-    const file = e.target.files[0];
-    const formData = new FormData();
-    formData.append("image", file);
+ const uploadPhoto = async (med) => {
+  const file = event.target.files[0];
+  const formData = new FormData();
+  formData.append("image", file);
 
-    const res = await axios.post(
-      "http://localhost:5000/api/ocr/upload",
-      formData
-    );
+  const res = await axios.post(
+    "http://localhost:5000/api/ocr/upload",
+    formData
+  );
 
-    const extracted = res.data.text.toLowerCase();
-    setOcrResult(extracted);
+  const extracted = res.data.text.toLowerCase();
+  setOcrResult(extracted);
 
-    // SIMPLE MATCHING LOGIC
-    const scheduled = "paracetamol 500mg"; // example
+  const scheduled = `${med.name} ${med.dosage}`.toLowerCase();
 
-    if (extracted.includes(scheduled)) {
-      setMessage("Correct medicine detected ✅");
-    } else {
-      setMessage("Mismatch detected ❌");
-    }
-  };
+  if (extracted.includes(scheduled)) {
+    alert("Correct medicine detected ✅");
+  } else {
+    alert("Mismatch detected ❌");
+  }
+};
 
   const markTaken = async (medId) => {
     await addDoc(collection(db, `users/${userId}/logs`), {
@@ -64,13 +72,19 @@ export default function Dashboard() {
       <h2>Today’s Medicines</h2>
 
       {medicines.map(med => (
-        <div key={med.id}>
-          <p>{med.name} — {med.dosage} at {med.time}</p>
-          <button onClick={() => markTaken(med.id)}>
-            Mark Taken
-          </button>
-        </div>
-      ))}
+  <div key={med.id}>
+    <p>{med.name} — {med.dosage} at {med.time}</p>
+
+    <input
+      type="file"
+      onChange={() => uploadPhoto(med)}
+    />
+
+    <button onClick={() => markTaken(med.id)}>
+      Mark Taken
+    </button>
+  </div>
+))}
     </div>
   );
 }

@@ -6,6 +6,7 @@ export default function Schedule() {
   const [name, setName] = useState("");
   const [dosage, setDosage] = useState("");
   const [time, setTime] = useState("");
+  const [date, setDate] = useState("");
 
   const userId = "user123";
 
@@ -16,15 +17,16 @@ export default function Schedule() {
       name,
       dosage,
       time,
+      date,   // 👈 important
       createdAt: new Date()
     });
 
-    alert("Medicine added!");
+    alert("Medicine scheduled for the day!");
   };
 
   return (
-    <div className="p-6">
-      <h1>Add Medicine</h1>
+    <div>
+      <h1>Schedule Medicine for a Day</h1>
 
       <form onSubmit={handleSubmit}>
         <input placeholder="Medicine name"
@@ -33,10 +35,13 @@ export default function Schedule() {
         <input placeholder="Dosage"
           onChange={e => setDosage(e.target.value)} />
 
+        <input type="date"
+          onChange={e => setDate(e.target.value)} />
+
         <input type="time"
           onChange={e => setTime(e.target.value)} />
 
-        <button>Save Medicine</button>
+        <button>Save</button>
       </form>
     </div>
   );

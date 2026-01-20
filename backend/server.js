@@ -37,17 +37,18 @@ app.post("/api/ocr/upload", upload.single("image"), async (req, res) => {
 ========================= */
 
 cron.schedule("* * * * *", async () => {
-  console.log("Checking reminders...");
+  console.log("Checking today’s reminders...");
+
+  const today = new Date().toISOString().split("T")[0];
+  const currentTime = new Date().toTimeString().slice(0, 5);
 
   const usersSnap = await db.collection("users").get();
 
   for (const userDoc of usersSnap.docs) {
     const medsSnap = await db
       .collection(`users/${userDoc.id}/medicines`)
+      .where("date", "==", today)   // 👈 only today
       .get();
-
-    const now = new Date();
-    const currentTime = now.toTimeString().slice(0, 5); // HH:MM
 
     for (const med of medsSnap.docs) {
       const data = med.data();
@@ -59,7 +60,7 @@ cron.schedule("* * * * *", async () => {
           to: process.env.USER_PHONE
         });
 
-        console.log("Reminder sent to:", process.env.USER_PHONE);
+        console.log("Reminder sent!");
       }
     }
   }
