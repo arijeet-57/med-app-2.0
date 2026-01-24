@@ -95,14 +95,23 @@ export default function Login({ onLogin }) {
           </div>
           
           <h1 style={{
-            fontSize: "32px",
+            fontSize: "40px",
             fontWeight: "700",
             color: "#e2e8f0",
             marginBottom: "8px",
             letterSpacing: "-0.5px"
           }}>
-            Smart Medication Assistant
+            PillPal
           </h1>
+
+          <h3 style={{
+            fontWeight: "700",
+            color: "#e2e8f0",
+            marginBottom: "8px",
+            letterSpacing: "-0.5px"
+          }}>
+            Smart Medical Assitant
+          </h3>
           
           <p style={{
             color: "#94a3b8",
@@ -270,31 +279,7 @@ export default function Login({ onLogin }) {
           </button>
         </form>
 
-        {/* Demo Info */}
-        <div style={{
-          marginTop: "24px",
-          padding: "16px",
-          background: "rgba(59, 130, 246, 0.1)",
-          border: "1px solid rgba(59, 130, 246, 0.3)",
-          borderRadius: "12px",
-          textAlign: "center"
-        }}>
-          <p style={{
-            color: "#93c5fd",
-            fontSize: "13px",
-            margin: 0,
-            fontWeight: "500"
-          }}>
-            🔓 Demo Mode
-          </p>
-          <p style={{
-            color: "#64748b",
-            fontSize: "12px",
-            margin: "4px 0 0 0"
-          }}>
-            Enter any credentials to access the system
-          </p>
-        </div>
+       
 
         {/* Footer */}
         <div style={{

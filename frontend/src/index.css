@@ -94,12 +94,13 @@ h1, h2, h3, h4, h5, h6 {
 
 p {
   margin-bottom: 12px;
-  color: #cbd5e1;
+  color: #000000;
+  font-weight: 400;
 }
 
 strong {
-  color: #e2e8f0;
-  font-weight: 600;
+  color: #070707;
+  font-weight: 800;
 }
 
 /* Links */

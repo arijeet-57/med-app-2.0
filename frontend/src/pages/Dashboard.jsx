@@ -9,83 +9,57 @@ export default function Dashboard() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploadingId, setUploadingId] = useState(null);
-  const [debugInfo, setDebugInfo] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [showNotif, setShowNotif] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showBanner, setShowBanner] = useState(false);
   const [bannerNotification, setBannerNotification] = useState(null);
-  const [listenerActive, setListenerActive] = useState(false);
 
   const audioRef = useRef(null);
   const userId = "user-1";
   const today = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
-    console.log("🚀 Dashboard mounted, setting up listeners...");
     fetchMeds();
 
-    const handleFocus = () => {
-      console.log("Window focused - refreshing medicines...");
-      fetchMeds();
-    };
-
+    const handleFocus = () => fetchMeds();
     window.addEventListener("focus", handleFocus);
 
-    // NOTIFICATION LISTENER
+    // Notification listener
     const notifRef = collection(db, `users/${userId}/notifications`);
     const qNotif = query(notifRef, orderBy("createdAt", "desc"));
 
-    console.log("📡 Setting up notification listener for:", `users/${userId}/notifications`);
+    const unsub = onSnapshot(qNotif, (snap) => {
+      const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      setNotifications(prevNotifs => {
+        const prevUnread = prevNotifs.filter(n => !n.read).length;
+        const newUnread = notifs.filter(n => !n.read).length;
 
-    const unsub = onSnapshot(qNotif, 
-      (snap) => {
-        console.log("🔔 Snapshot received! Documents:", snap.docs.length);
-        
-        const notifs = snap.docs.map(d => {
-          const data = { id: d.id, ...d.data() };
-          console.log("   Notification:", data);
-          return data;
-        });
-        
-        setListenerActive(true);
-        setNotifications(prevNotifs => {
-          const prevUnread = prevNotifs.filter(n => !n.read).length;
-          const newUnread = notifs.filter(n => !n.read).length;
-
-          console.log(`   Unread count: ${prevUnread} → ${newUnread}`);
-
-          if (newUnread > prevUnread && newUnread > 0) {
-            const latestUnread = notifs.find(n => !n.read);
-            if (latestUnread) {
-              console.log("   🎵 Playing sound for new notification");
-              setBannerNotification(latestUnread);
-              setShowBanner(true);
-              
-              if (audioRef.current) {
-                audioRef.current.play().catch(e => console.log("Audio play failed:", e));
-              }
+        if (newUnread > prevUnread && newUnread > 0) {
+          const latestUnread = notifs.find(n => !n.read);
+          if (latestUnread) {
+            setBannerNotification(latestUnread);
+            setShowBanner(true);
+            
+            if (audioRef.current) {
+              audioRef.current.play().catch(e => console.log("Audio autoplay prevented"));
             }
           }
+        }
 
-          if (newUnread === 0 && audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-            setShowBanner(false);
-          }
+        if (newUnread === 0 && audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          setShowBanner(false);
+        }
 
-          setUnreadCount(newUnread);
-          return notifs;
-        });
-      },
-      (error) => {
-        console.error("❌ Snapshot error:", error);
-        setDebugInfo(`Listener error: ${error.message}`);
-      }
-    );
+        setUnreadCount(newUnread);
+        return notifs;
+      });
+    });
 
     return () => {
-      console.log("🛑 Cleaning up listeners...");
       window.removeEventListener("focus", handleFocus);
       unsub();
     };
@@ -94,7 +68,6 @@ export default function Dashboard() {
   async function fetchMeds() {
     try {
       setLoading(true);
-      setDebugInfo("Loading medicines for next 7 days...");
 
       const medsRef = collection(db, `users/${userId}/medicines`);
       const snap = await getDocs(medsRef);
@@ -114,10 +87,8 @@ export default function Dashboard() {
       list.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
       setMedicines(list);
-      setDebugInfo(`✅ Loaded ${list.length} medicines`);
-
     } catch (error) {
-      console.error("❌ Error fetching medicines:", error);
+      console.error("Error fetching medicines:", error);
       setMessage("❌ Failed to load medicines");
     } finally {
       setLoading(false);
@@ -157,39 +128,108 @@ export default function Dashboard() {
       const extracted = res.data.text.toLowerCase().trim();
       setOcrResult(extracted);
 
-      const dosageParts = med.dosage.toLowerCase().split(" ");
-      const dosageNumber = dosageParts[0];
-      const dosageUnit = dosageParts.slice(1).join(" ");
-
-      const components = [
-        med.name.toLowerCase(),
-        dosageNumber,
-        dosageUnit || "mg"
-      ];
-
+      // Extract all words from both medicine info and OCR text
+      const medNameWords = med.name.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const dosageWords = med.dosage.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+      
+      // Combine all expected words
+      const expectedWords = [...medNameWords, ...dosageWords];
+      
+      // Split OCR text into words
+      const ocrWords = extracted.split(/\s+/).filter(w => w.length > 0);
+      
+      // Count matches
       let matchCount = 0;
-      const matchedItems = [];
-
-      components.forEach(item => {
-        if (item && extracted.includes(item)) {
+      const matchedWords = [];
+      
+      expectedWords.forEach(expectedWord => {
+        // Check for exact match or partial match (at least 80% similar)
+        const found = ocrWords.some(ocrWord => {
+          if (ocrWord.includes(expectedWord) || expectedWord.includes(ocrWord)) {
+            return true;
+          }
+          // Check similarity for longer words (fuzzy matching)
+          if (expectedWord.length > 3 && ocrWord.length > 3) {
+            const similarity = calculateSimilarity(expectedWord, ocrWord);
+            return similarity > 0.7;
+          }
+          return false;
+        });
+        
+        if (found) {
           matchCount++;
-          matchedItems.push(item);
+          matchedWords.push(expectedWord);
         }
       });
 
-      if (matchCount >= 3) {
-        setMessage(`✅ OK — matched ${matchCount}/3 components`);
+      const totalExpected = expectedWords.length;
+      const matchPercentage = (matchCount / totalExpected) * 100;
+
+      // Match is valid if 2-6 words match (or at least 50% of expected words)
+      const isMatch = matchCount >= 2 && (matchCount <= 6 || matchPercentage >= 50);
+
+      if (isMatch) {
+        setMessage(
+          `✅ Verified: ${med.name} ${med.dosage} (${matchCount}/${totalExpected} words matched)`
+        );
       } else {
-        setMessage(`❌ Not OK — only matched ${matchCount}/3 components`);
+        setMessage(
+          `❌ Mismatch: Only ${matchCount}/${totalExpected} words matched. Expected: ${med.name} ${med.dosage}`
+        );
       }
 
     } catch (error) {
       console.error("OCR error:", error);
-      setMessage("❌ Upload failed");
+      if (error.code === 'ECONNABORTED') {
+        setMessage("❌ Upload timeout");
+      } else if (error.request) {
+        setMessage("❌ Cannot connect to server");
+      } else {
+        setMessage("❌ Upload failed");
+      }
     } finally {
       setUploadingId(null);
       event.target.value = '';
     }
+  };
+
+  // Helper function to calculate string similarity (Levenshtein-based)
+  const calculateSimilarity = (str1, str2) => {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = getEditDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  };
+
+  const getEditDistance = (str1, str2) => {
+    const matrix = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
   };
 
   const markTaken = async (medId, medName) => {
@@ -213,13 +253,13 @@ export default function Dashboard() {
         prev.map(m => m.id === medId ? { ...m, taken: true, status: "taken" } : m)
       );
     } catch (error) {
-      console.error("❌ Error logging medicine:", error);
+      console.error("Error logging medicine:", error);
       setMessage("❌ Failed to log medicine");
     }
   };
 
   const deleteMedicine = async (medId, medName) => {
-    const ok = window.confirm(`Are you sure you want to delete ${medName}?`);
+    const ok = window.confirm(`Delete ${medName}?`);
     if (!ok) return;
 
     try {
@@ -228,7 +268,7 @@ export default function Dashboard() {
       setMessage(`🗑️ Deleted ${medName}`);
     } catch (err) {
       console.error("Delete failed:", err);
-      setMessage("❌ Failed to delete medicine");
+      setMessage("❌ Failed to delete");
     }
   };
 
@@ -264,60 +304,14 @@ export default function Dashboard() {
         deleteDoc(doc(db, `users/${userId}/notifications`, n.id))
       );
       await Promise.all(batch);
-      console.log("✅ All notifications cleared");
     } catch (err) {
       console.error("Failed to clear notifications:", err);
     }
   };
 
-  const testServerConnection = async () => {
-    try {
-      setDebugInfo("Testing server connection...");
-      const res = await axios.get("http://localhost:5000/api/health");
-      console.log("Server health:", res.data);
-      setDebugInfo(`✅ Server OK: ${JSON.stringify(res.data)}`);
-    } catch (err) {
-      console.error("Server connection failed:", err);
-      setDebugInfo(`❌ Server connection failed: ${err.message}`);
-    }
-  };
-
-  const testNotification = async () => {
-    try {
-      setDebugInfo("🧪 Sending test notification...");
-      console.log("Creating test notification via API...");
-      
-      const res = await axios.post("http://localhost:5000/api/test-notification", {
-        userId: userId,
-        message: `Test notification at ${new Date().toLocaleTimeString()}`,
-        type: "reminder"
-      });
-
-      console.log("Test notification response:", res.data);
-      setDebugInfo(`✅ Test notification created: ${res.data.notificationId}`);
-      setMessage("🧪 Test notification sent! Check the bell icon.");
-    } catch (err) {
-      console.error("Test notification failed:", err);
-      setDebugInfo(`❌ Failed: ${err.message}`);
-      setMessage("❌ Test notification failed");
-    }
-  };
-
-  const checkNotifications = async () => {
-    try {
-      setDebugInfo("Checking notifications in Firestore...");
-      const res = await axios.get(`http://localhost:5000/api/notifications/${userId}`);
-      console.log("Notifications from API:", res.data);
-      setDebugInfo(`Found ${res.data.count} notifications in database`);
-    } catch (err) {
-      console.error("Check failed:", err);
-      setDebugInfo(`❌ Check failed: ${err.message}`);
-    }
-  };
-
   const getNotificationIcon = (type) => {
     switch(type) {
-      case "reminder": return "⏰";
+      case "reminder": return "";
       case "late": return "⚠️";
       case "missed": return "❌";
       default: return "🔔";
@@ -423,7 +417,8 @@ export default function Dashboard() {
             cursor: "pointer",
             fontSize: "20px",
             width: "50px",
-            height: "50px"
+            height: "50px",
+            transition: "all 0.3s"
           }}
         >
           🔔
@@ -441,7 +436,8 @@ export default function Dashboard() {
               alignItems: "center",
               justifyContent: "center",
               fontSize: "12px",
-              fontWeight: "bold"
+              fontWeight: "bold",
+              animation: "pulse 2s infinite"
             }}>
               {unreadCount}
             </span>
@@ -486,8 +482,8 @@ export default function Dashboard() {
             </div>
 
             {notifications.length === 0 && (
-              <p style={{ textAlign: "center", color: "#6c757d", padding: "20px" }}>
-                No notifications yet.
+              <p style={{ textAlign: "center", color: "#ffffff", padding: "20px" }}>
+                No notifications
               </p>
             )}
 
@@ -499,7 +495,7 @@ export default function Dashboard() {
                   marginBottom: "10px",
                   background: n.read ? "#f8f9fa" : getNotificationColor(n.type),
                   borderRadius: "6px",
-                  border: `1px solid ${n.read ? "#dee2e6" : "#007bff"}`,
+                  border: `1px solid ${n.read ? "#0d0d0d" : "#007bff"}`,
                   opacity: n.read ? 0.7 : 1
                 }}
               >
@@ -511,7 +507,7 @@ export default function Dashboard() {
                     <p style={{ margin: "0 0 4px 0", fontWeight: n.read ? "normal" : "bold" }}>
                       {n.message}
                     </p>
-                    <small style={{ color: "#6c757d" }}>
+                    <small style={{ color: "#000000" }}>
                       {n.createdAt?.seconds 
                         ? new Date(n.createdAt.seconds * 1000).toLocaleString()
                         : "Just now"}
@@ -556,104 +552,14 @@ export default function Dashboard() {
         </>
       )}
 
-      {debugInfo && (
-        <div style={{
-          background: "#e7f3ff",
-          color: "#004085",
-          padding: "12px",
-          borderRadius: "4px",
-          marginBottom: "16px",
-          border: "1px solid #b8daff",
-          fontSize: "12px",
-          fontFamily: "monospace"
-        }}>
-          {debugInfo}
-        </div>
-      )}
-
-      <div style={{ marginBottom: "16px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        <button
-          onClick={testServerConnection}
-          style={{
-            padding: "8px 16px",
-            background: "#6c757d",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px"
-          }}
-        >
-          🔧 Test Server
-        </button>
-
-        <button
-          onClick={testNotification}
-          style={{
-            padding: "8px 16px",
-            background: "#ffc107",
-            color: "black",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px",
-            fontWeight: "bold"
-          }}
-        >
-          🧪 Send Test Notification
-        </button>
-
-        <button
-          onClick={checkNotifications}
-          style={{
-            padding: "8px 16px",
-            background: "#17a2b8",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px"
-          }}
-        >
-          📋 Check Notifications
-        </button>
-
-        <button
-          onClick={fetchMeds}
-          style={{
-            padding: "8px 16px",
-            background: "#28a745",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px"
-          }}
-        >
-          🔄 Refresh Medicines
-        </button>
-      </div>
-
-      <div style={{
-        background: listenerActive ? "#d4edda" : "#f8d7da",
-        color: listenerActive ? "#155724" : "#721c24",
-        padding: "8px 12px",
-        borderRadius: "4px",
-        marginBottom: "16px",
-        fontSize: "12px"
-      }}>
-        Listener Status: {listenerActive ? "✅ Active" : "❌ Not Active"} | 
-        Total Notifications: {notifications.length} | 
-        Unread: {unreadCount}
-      </div>
-
       {message && (
         <div style={{ 
           background: message.includes("✅") ? "#d4edda" : "#f8d7da",
           color: message.includes("✅") ? "#155724" : "#721c24",
           padding: "12px",
           borderRadius: "4px",
-          marginBottom: "16px"
+          marginBottom: "16px",
+          border: `1px solid ${message.includes("✅") ? "#c3e6cb" : "#f5c6cb"}`
         }}>
           {message}
         </div>
@@ -665,10 +571,10 @@ export default function Dashboard() {
           padding: "12px", 
           borderRadius: "4px",
           marginBottom: "16px",
-          border: "1px solid #dee2e6"
+          border: "1px solid #262a2e"
         }}>
           <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
-            OCR Text Extracted
+            OCR Results
           </summary>
           <pre style={{ 
             marginTop: "8px", 
@@ -680,9 +586,9 @@ export default function Dashboard() {
         </details>
       )}
 
-      <h2>Upcoming Medicines (Next 7 Days)</h2>
+      <h2>Upcoming Medicines</h2>
 
-      {loading && <p>Loading medicines...</p>}
+      {loading && <p>Loading...</p>}
 
       {!loading && medicines.length === 0 && (
         <div style={{ 
@@ -692,7 +598,7 @@ export default function Dashboard() {
           borderRadius: "8px",
           border: "2px dashed #dee2e6"
         }}>
-          <p style={{ color: "#6c757d", fontStyle: "italic", fontSize: "16px" }}>
+          <p style={{ color: "#dcdedf", fontStyle: "italic", fontSize: "16px" }}>
             No medicines scheduled for the next 7 days.
           </p>
         </div>
@@ -702,37 +608,39 @@ export default function Dashboard() {
         <div
           key={med.id}
           style={{ 
-            border: "1px solid #dee2e6", 
-            padding: "16px", 
-            margin: "12px 0",
-            borderRadius: "8px",
-            background: med.status === "taken" ? "#f0f0f0" : "white",
-            opacity: med.status === "taken" ? 0.7 : 1
-          }}
+  border: "1px solid #1c1d20", 
+  padding: "16px", 
+  margin: "12px 0",
+  borderRadius: "10px",
+  background: med.status === "taken" ? "#151617" : "#ffffff",
+  opacity: med.status === "taken" ? 0.75 : 1,
+  boxShadow: "0 4px 10px rgba(0,0,0,0.08)"
+}}
+
         >
           <div style={{ marginBottom: "12px" }}>
-            <h3 style={{ margin: "0 0 8px 0" }}>
+            <h3 className="nameOfMedicine" style={{ margin: "0 0 8px 0" }}>
               {med.name} {med.status === "taken" && "✓"}
             </h3>
-            <p style={{ margin: "4px 0", color: "#495057" }}>
+            <p style={{ margin: "4px 0", color: "#000000" }}>
               <strong>Date:</strong> {med.date}
             </p>
-            <p style={{ margin: "4px 0", color: "#495057" }}>
+            <p style={{ margin: "4px 0", color: "#000000" }}>
               <strong>Dosage:</strong> {med.dosage}
             </p>
-            <p style={{ margin: "4px 0", color: "#495057" }}>
+            <p style={{ margin: "4px 0", color: "#000000" }}>
               <strong>Time:</strong> {med.time}
             </p>
-            {med.status && (
+            {med.status && med.status !== "scheduled" && (
               <p style={{ 
                 margin: "4px 0", 
                 color: med.status === "taken" ? "#28a745" : 
                        med.status === "late" ? "#ffc107" : 
-                       med.status === "missed" ? "#dc3545" : "#6c757d",
+                       med.status === "missed" ? "#dc3545" : "#202224",
                 fontWeight: "bold",
                 fontSize: "12px"
               }}>
-                Status: {med.status.toUpperCase()}
+                {med.status.toUpperCase()}
               </p>
             )}
           </div>
@@ -746,7 +654,7 @@ export default function Dashboard() {
               borderRadius: "4px",
               display: "inline-block"
             }}>
-              {uploadingId === med.id ? "Processing..." : "📷 Verify Photo"}
+              {uploadingId === med.id ? "Processing..." : "📷 Verify"}
               <input
                 type="file"
                 accept="image/*"
@@ -761,7 +669,7 @@ export default function Dashboard() {
               disabled={med.status === "taken"}
               style={{
                 padding: "8px 16px",
-                background: med.status === "taken" ? "#6c757d" : "#28a745",
+                background: med.status === "taken" ? "#2a2c2e" : "#28a745",
                 color: "white",
                 border: "none",
                 borderRadius: "4px",
@@ -787,6 +695,17 @@ export default function Dashboard() {
           </div>
         </div>
       ))}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.1);
+          }
+        }
+      `}</style>
     </div>
   );
 }

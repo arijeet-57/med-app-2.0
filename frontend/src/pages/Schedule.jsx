@@ -1,14 +1,11 @@
 import { useState } from "react";
 import { db } from "../firebase";
-import axios from "axios";             
+import axios from "axios";
 import { collection, addDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-import '../index.css';
-import "../App.css";
 
 export default function Schedule() {
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrText, setOcrText] = useState("");
   const [name, setName] = useState("");
   const [dosage, setDosage] = useState("");
   const [time, setTime] = useState("");
@@ -16,7 +13,7 @@ export default function Schedule() {
   const [repeat, setRepeat] = useState("once");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [debugInfo, setDebugInfo] = useState("");
+  const [success, setSuccess] = useState("");
 
   const navigate = useNavigate();
   const userId = "user-1";
@@ -24,7 +21,7 @@ export default function Schedule() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setDebugInfo("");
+    setSuccess("");
 
     if (!name || !dosage || !time || !date) {
       setError("Please fill all required fields!");
@@ -37,12 +34,11 @@ export default function Schedule() {
     selectedDate.setHours(0, 0, 0, 0);
     
     if (selectedDate < today) {
-      setError("Cannot schedule medicine for a past date!");
+      setError("Cannot schedule for past dates!");
       return;
     }
 
     setLoading(true);
-    setDebugInfo("Starting save process...");
 
     try {
       const medicineData = {
@@ -56,21 +52,9 @@ export default function Schedule() {
         active: true
       };
 
-      console.log("Saving medicine data:", medicineData);
-      console.log("Collection path:", `users/${userId}/medicines`);
-
-      setDebugInfo("Connecting to Firebase...");
-
-      const docRef = await addDoc(
-        collection(db, `users/${userId}/medicines`), 
-        medicineData
-      );
-
-      console.log("Document written with ID:", docRef.id);
-      setDebugInfo(`✅ Saved with ID: ${docRef.id}`);
+      await addDoc(collection(db, `users/${userId}/medicines`), medicineData);
 
       if (repeat === "daily") {
-        setDebugInfo("Creating daily schedule for 7 days...");
         const promises = [];
         
         for (let i = 1; i <= 7; i++) {
@@ -86,22 +70,17 @@ export default function Schedule() {
         }
         
         await Promise.all(promises);
-        console.log("Daily schedule created for 7 days");
       }
 
-      alert(`✅ Medicine scheduled successfully!${repeat === "daily" ? " (Next 7 days)" : ""}`);
+      setSuccess(`✅ Medicine scheduled successfully!${repeat === "daily" ? " (Next 7 days)" : ""}`);
       
       setTimeout(() => {
         navigate("/");
-      }, 1000);
+      }, 1500);
 
     } catch (err) {
-      console.error("❌ Error scheduling medicine:", err);
-      console.error("Error code:", err.code);
-      console.error("Error message:", err.message);
-      
-      setError(`Failed to save: ${err.message}`);
-      setDebugInfo(`Error: ${err.code || 'Unknown error'}`);
+      console.error("Error scheduling medicine:", err);
+      setError("Failed to save medicine. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -111,113 +90,73 @@ export default function Schedule() {
     return new Date().toISOString().split("T")[0];
   };
 
-  const testConnection = async () => {
-    setDebugInfo("Testing Firebase connection...");
-    try {
-      const testData = {
-        test: true,
-        timestamp: new Date()
-      };
-      
-      const docRef = await addDoc(
-        collection(db, `users/${userId}/test`), 
-        testData
-      );
-      
-      setDebugInfo(`✅ Connection OK! Test doc ID: ${docRef.id}`);
-      console.log("Firebase test successful:", docRef.id);
-    } catch (err) {
-      setDebugInfo(`❌ Connection failed: ${err.message}`);
-      console.error("Firebase test failed:", err);
-    }
-  };
+ const scanMedicineName = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
 
-  // FIXED: Properly extracts medicine name from OCR
-  const extractMedicineNameFromImage = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    setError("Please upload an image file");
+    return;
+  }
 
-    if (!file.type.startsWith("image/")) {
-      setError("❌ Please upload an image file");
-      return;
-    }
+  if (file.size > 5 * 1024 * 1024) {
+    setError("Image must be less than 5MB");
+    return;
+  }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError("❌ Image must be less than 5MB");
-      return;
-    }
+  setOcrLoading(true);
+  setError("");
 
-    setOcrLoading(true);
-    setError("");
-    setDebugInfo("🔄 Extracting medicine name from image...");
+  try {
+    const formData = new FormData();
+    formData.append("image", file);
 
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-
-      const res = await axios.post(
-        "http://localhost:5000/api/ocr/upload",
-        formData,
-        { 
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 30000 
-        }
-      );
-
-      const extractedText = res.data.text.trim();
-      setOcrText(extractedText);
-
-      // Extract first line as medicine name
-      const lines = extractedText.split("\n").filter(line => line.trim());
-      const firstLine = lines[0] || "";
-      
-      // Clean up the extracted name
-      const cleanedName = firstLine.trim();
-
-      if (cleanedName) {
-        setName(cleanedName);
-        setDebugInfo(`✅ OCR detected name: "${cleanedName}"`);
-      } else {
-        setError("⚠️ Could not detect medicine name from image");
-        setDebugInfo("OCR completed but no text found");
+    const res = await axios.post(
+      "http://localhost:5000/api/ocr/upload",
+      formData,
+      { 
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000 
       }
+    );
 
-    } catch (err) {
-      console.error("OCR error:", err);
-      if (err.code === 'ECONNABORTED') {
-        setError("❌ Upload timeout - please try again");
-      } else if (err.response) {
-        setError(`❌ Server error: ${err.response.data.error || 'Unknown error'}`);
-      } else if (err.request) {
-        setError("❌ Cannot connect to server - is it running on port 5000?");
-      } else {
-        setError("❌ Failed to read medicine from image");
-      }
-      setDebugInfo(`Error: ${err.message}`);
-    } finally {
-      setOcrLoading(false);
-      event.target.value = "";
+    // ✅ CONVERT TO LOWERCASE HERE
+    const extractedText = res.data.text
+      .toLowerCase()      // <-- IMPORTANT
+      .trim();
+
+    const lines = extractedText
+      .split("\n")
+      .filter(line => line.trim());
+
+    const firstLine = lines[0] || "";
+
+    if (firstLine) {
+      setName(firstLine);   // field will now always be lowercase
+      setSuccess(`✅ Detected: ${firstLine}`);
+    } else {
+      setError("Could not detect medicine name");
     }
-  };
+
+  } catch (err) {
+    console.error("OCR error:", err);
+
+    if (err.code === 'ECONNABORTED') {
+      setError("Upload timeout. Please try again.");
+    } else if (err.request) {
+      setError("Cannot connect to server");
+    } else {
+      setError("Failed to scan image");
+    }
+  } finally {
+    setOcrLoading(false);
+    event.target.value = "";
+  }
+};
 
   return (
     <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto" }}>
       <h1>Schedule Medicine</h1>
-
-      {debugInfo && (
-        <div style={{
-          background: "#e7f3ff",
-          color: "#004085",
-          padding: "12px",
-          borderRadius: "4px",
-          marginBottom: "16px",
-          border: "1px solid #b8daff",
-          fontSize: "12px",
-          fontFamily: "monospace"
-        }}>
-          {debugInfo}
-        </div>
-      )}
 
       {error && (
         <div style={{
@@ -232,46 +171,18 @@ export default function Schedule() {
         </div>
       )}
 
-      {ocrText && (
-        <details style={{
-          background: "#f8f9fa",
+      {success && (
+        <div style={{
+          background: "#d4edda",
+          color: "#155724",
           padding: "12px",
           borderRadius: "4px",
           marginBottom: "16px",
-          border: "1px solid #dee2e6"
+          border: "1px solid #c3e6cb"
         }}>
-          <summary style={{ cursor: "pointer", fontWeight: "bold", marginBottom: "8px" }}>
-            OCR Extracted Text (click to view)
-          </summary>
-          <pre style={{
-            marginTop: "8px",
-            whiteSpace: "pre-wrap",
-            fontSize: "12px",
-            background: "white",
-            padding: "8px",
-            borderRadius: "4px"
-          }}>
-            {ocrText}
-          </pre>
-        </details>
+          {success}
+        </div>
       )}
-
-      <button
-        type="button"
-        onClick={testConnection}
-        style={{
-          padding: "8px 16px",
-          background: "#6c757d",
-          color: "white",
-          border: "none",
-          borderRadius: "4px",
-          cursor: "pointer",
-          marginBottom: "20px",
-          fontSize: "12px"
-        }}
-      >
-        🔧 Test Firebase Connection
-      </button>
 
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         <div>
@@ -292,18 +203,18 @@ export default function Schedule() {
               fontWeight: "500"
             }}
           >
-            {ocrLoading ? "⏳ Scanning..." : "📷 Scan Medicine Name from Photo"}
+            {ocrLoading ? "⏳ Scanning..." : "📷 Scan from Photo"}
             <input
               type="file"
               accept="image/*"
-              onChange={extractMedicineNameFromImage}
+              onChange={scanMedicineName}
               style={{ display: "none" }}
               disabled={ocrLoading}
             />
           </label>
 
           <input
-            placeholder="e.g., Aspirin, Metformin, Paracetamol"
+            placeholder="e.g., Aspirin, Metformin"
             value={name}
             onChange={e => setName(e.target.value)}
             style={{
@@ -315,7 +226,7 @@ export default function Schedule() {
             }}
           />
           <small style={{ color: "#6c757d", display: "block", marginTop: "4px" }}>
-            You can type manually or scan from medicine bottle/packet
+            Type manually or scan from medicine bottle
           </small>
         </div>
 
@@ -354,9 +265,6 @@ export default function Schedule() {
               fontSize: "14px"
             }}
           />
-          <small style={{ color: "#6c757d", display: "block", marginTop: "4px" }}>
-            Cannot schedule for past dates
-          </small>
         </div>
 
         <div>
@@ -396,7 +304,7 @@ export default function Schedule() {
             <option value="daily">Daily (next 7 days)</option>
           </select>
           <small style={{ color: "#6c757d", display: "block", marginTop: "4px" }}>
-            Daily option will create 7 entries automatically
+            Daily creates 7 entries automatically
           </small>
         </div>
 
@@ -416,7 +324,7 @@ export default function Schedule() {
               flex: 1
             }}
           >
-            {loading ? "⏳ Scheduling..." : "💾 Save Medicine"}
+            {loading ? "Saving..." : "💾 Save Medicine"}
           </button>
 
           <button
@@ -438,33 +346,6 @@ export default function Schedule() {
           </button>
         </div>
       </form>
-
-      <details style={{ marginTop: "30px", fontSize: "12px" }}>
-        <summary style={{ cursor: "pointer", color: "#6c757d", fontWeight: "500" }}>
-          Developer Info
-        </summary>
-        <pre style={{ 
-          background: "#f8f9fa", 
-          padding: "12px", 
-          borderRadius: "4px",
-          marginTop: "8px",
-          overflow: "auto"
-        }}>
-          User ID: {userId}{"\n"}
-          Collection Path: users/{userId}/medicines{"\n"}
-          Today: {getTodayDate()}{"\n"}
-          {"\n"}
-          Form Data:{"\n"}
-          - Name: {name || "(empty)"}{"\n"}
-          - Dosage: {dosage || "(empty)"}{"\n"}
-          - Date: {date || "(empty)"}{"\n"}
-          - Time: {time || "(empty)"}{"\n"}
-          - Repeat: {repeat}{"\n"}
-          {"\n"}
-          OCR Status: {ocrLoading ? "Processing..." : "Ready"}{"\n"}
-          OCR Text Length: {ocrText.length} characters
-        </pre>
-      </details>
     </div>
   );
 }

@@ -55,7 +55,7 @@ export default function App() {
             WebkitTextFillColor: "transparent",
             letterSpacing: "0.5px"
           }}>
-            MedAssist
+            PillPal
           </span>
         </div>
 
@@ -64,8 +64,8 @@ export default function App() {
             Dashboard
           </Link>
 
-          <Link to="/schedule">
-            Add Medicine
+          <Link className="addMedicine" to="/schedule">
+            + Add Medicine
           </Link>
 
           <div style={{
